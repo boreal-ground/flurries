@@ -1,9 +1,9 @@
 -- flurries for iii - boreal ground
-print("flurries v0.3")
+print("flurries v0.4")
 
 -- editable parameters
 local internal_clock_bpm = 120 -- set starting bpm for internal clock
-local run_clock = true -- override: stops listening to all clocks
+local run_clock = true -- clock override: stops listening to all clocks if false
 local loop_start = 1 -- first step of loop
 local loop_end = 16 -- last step of loop
 
@@ -49,6 +49,14 @@ function redraw_grid()
         grid_led(current_step, 2, 15)
     end
 
+    -- light held start/end button leds for new loop
+    if temp_loop_start ~= 0 then
+        grid_led(temp_loop_start, 2, 15)
+    end
+    if temp_loop_end ~= 0 then
+        grid_led(temp_loop_end, 2, 15)
+    end
+
     grid_refresh()
 end
 
@@ -89,7 +97,9 @@ local internal_clock = metro.init(tick, 30 / internal_clock_bpm)
 
 -- run internal clock on script launch
 check_direction()
-internal_clock:start()
+if run_clock then
+    internal_clock:start()
+end
 redraw_grid()
 
 -- print script start state
@@ -122,17 +132,19 @@ function event_grid(x, y, z)
         -- if two buttons are held, update loop_start and loop_end on release
         if z == 1 then
             -- button pressed
-            buttons_held = buttons_held + 1
+            buttons_held = math.min(buttons_held + 1, 2)
 
             if buttons_held == 1 then
                 temp_loop_start = x
+                temp_loop_end = x
             elseif buttons_held == 2 then
                 temp_loop_end = x
             end
+            redraw_grid()
         else
             -- button released
-            buttons_held = buttons_held - 1
-            redraw_grid()
+            buttons_held = math.max(buttons_held - 1, 0)
+            -- redraw_grid()
 
             if buttons_held == 0 and temp_loop_start > 0 and temp_loop_end > 0 then
                 loop_start = temp_loop_start
@@ -159,10 +171,10 @@ function event_grid(x, y, z)
     end
 end
 
--- midi event handling
+-- midi in event handling
 function event_midi(d1, d2, d3)
 
-    -- midi transport message handling
+    -- midi in transport message handling
     if d1 == MIDI_STOP then
         midi_sync = false
         print("midi sync: " .. tostring(midi_sync))
@@ -193,7 +205,7 @@ function event_midi(d1, d2, d3)
         return
     end
 
-    -- midi note / CC handling
+    -- midi in note / CC handling
     midi_message(d1, d2, d3)
 end
 
