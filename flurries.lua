@@ -1,30 +1,34 @@
 -- flurries for iii - boreal ground
-print("flurries v0.2")
+print("flurries v0.3")
 
 -- editable parameters
 local internal_clock_bpm = 120 -- set starting bpm for internal clock
 local run_clock = true -- override: stops listening to all clocks
-local first_step = 1 -- first step of loop
-local last_step = 16 -- last step of loop
+local loop_start = 1 -- first step of loop
+local loop_end = 16 -- last step of loop
 
 -- starting parameters
 local clock_led = 0
 local midi_ppqn = 0
 local midi_sync = false
 local forwards = true
-local current_step = first_step
+local current_step = loop_start
 local buttons_held = 0
-local temp_first_step = 0
-local temp_last_step = 0
+local temp_loop_start = 0
+local temp_loop_end = 0
 
 -- MIDI constants
 local MIDI_CLOCK = 248
 local MIDI_START = 250
 local MIDI_STOP = 252
 
+-- FUNCTIONS
+
 -- redraw grid leds
 function redraw_grid()
     grid_led_all(0)
+
+    -- clock led
     if run_clock then
         -- led 1,1 blink on clock running
         grid_led(1, 1, clock_led * 15)
@@ -34,14 +38,10 @@ function redraw_grid()
     end
 
     -- light leds within active loop
-    if first_step <= last_step then
-        for i = first_step, last_step do
-            grid_led(i, 2, 4)
-        end
-    elseif first_step > last_step then
-        for i = first_step, last_step, -1 do
-            grid_led(i, 2, 4)
-        end
+    local step_min = math.min(loop_start, loop_end)
+    local step_max = math.max(loop_start, loop_end)
+    for i = step_min, step_max do
+        grid_led(i, 2, 4)
     end
 
     -- light led for current_step
@@ -52,25 +52,28 @@ function redraw_grid()
     grid_refresh()
 end
 
+-- check direction of loop
+function check_direction()
+    forwards = loop_start <= loop_end
+end
+
 -- clock tick function
 function tick()
     -- update state of clock_led
     clock_led = 1 - clock_led
 
-    -- check direction of loop
+    -- loop wraparound logic
     if forwards then
-        -- forward loop
-        if current_step < last_step then
-            current_step = current_step + 1
-        else
-            current_step = first_step
+        -- forwards
+        current_step = current_step + 1
+        if current_step > loop_end then
+            current_step = loop_start
         end
     else
-        -- backwards loop
-        if current_step > last_step then
-            current_step = current_step - 1
-        else
-            current_step = first_step
+        -- backwards
+        current_step = current_step - 1
+        if current_step < loop_end then
+            current_step = loop_start
         end
     end
 
@@ -79,14 +82,7 @@ function tick()
     redraw_grid()
 end
 
--- check direction of loop
-function check_direction()
-    if first_step > last_step then
-        forwards = false
-    else
-        forwards = true
-    end
-end
+-- MAIN SCRIPT
 
 -- initialise internal clock
 local internal_clock = metro.init(tick, 30 / internal_clock_bpm)
@@ -103,9 +99,11 @@ print("clock running: " .. tostring(run_clock))
 
 -- grid button event handling
 function event_grid(x, y, z)
-    -- menu row: row 1
     if y == 1 then
+        -- menu row: row 1
+
         if x == 1 and z == 1 then
+
             -- if button 1,1 is pressed: toggles run_clock override
             run_clock = not run_clock
             print("clock running: " .. tostring(run_clock))
@@ -115,43 +113,46 @@ function event_grid(x, y, z)
             elseif not midi_sync then
                 internal_clock:start()
             end
-
-            -- run redraw_grid() function on button-press
             redraw_grid()
         end
+
     elseif y == 2 then
-        -- if two buttons are held, update first_step and last_step on release
+        -- loop row: row 2
+
+        -- if two buttons are held, update loop_start and loop_end on release
         if z == 1 then
             -- button pressed
             buttons_held = buttons_held + 1
 
             if buttons_held == 1 then
-                temp_first_step = x
+                temp_loop_start = x
             elseif buttons_held == 2 then
-                temp_last_step = x
+                temp_loop_end = x
             end
         else
             -- button released
             buttons_held = buttons_held - 1
+            redraw_grid()
 
-            if buttons_held == 0 and temp_first_step > 0 and temp_last_step > 0 then
-                first_step = temp_first_step
-                last_step = temp_last_step
+            if buttons_held == 0 and temp_loop_start > 0 and temp_loop_end > 0 then
+                loop_start = temp_loop_start
+                loop_end = temp_loop_end
                 check_direction()
 
                 -- only reset current_step if it is outside of new loop
                 if forwards then
-                    if current_step < first_step or current_step > last_step then
-                        current_step = first_step
+                    if current_step < loop_start or current_step > loop_end then
+                        current_step = loop_start
                     end
                 else
-                    if current_step > first_step or current_step < last_step then
-                        current_step = first_step
+                    if current_step > loop_start or current_step < loop_end then
+                        current_step = loop_start
                     end
                 end
 
-                temp_first_step = 0
-                temp_last_step = 0
+                print("loop start: " .. temp_loop_start .. " | loop end: " .. temp_loop_end)
+                temp_loop_start = 0
+                temp_loop_end = 0
                 redraw_grid()
             end
         end
