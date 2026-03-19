@@ -1,14 +1,14 @@
 -- flurries for iii - boreal ground
-print("flurries v0.5")
+print("flurries v0.6")
 
 -- editable parameters
 local internal_clock_bpm = 120 -- set starting bpm for internal clock
 local run_clock = true -- clock override: stops listening to all clocks if false
 local loop_start = 1 -- first step of loop
 local loop_end = 16 -- last step of loop
-local clock_div = 1 -- multiply/divide clock
-local clock_led_loc = 3 -- default position (x1)
-local divs = {4, 2, 1, 0.5, 0.25}
+local selected_clock_div = 3 -- default clock multipliers/divider position
+local clock_divs = {4, 2, 1, 0.5, 0.25} -- available clock multipliers/dividers
+local notes = {66, 68, 70, 72, 74, 76} -- available note array
 
 -- starting parameters
 local clock_led = 0
@@ -19,6 +19,8 @@ local current_step = loop_start
 local buttons_held = 0
 local temp_loop_start = 0
 local temp_loop_end = 0
+local last_note = 0
+local steps = {1, 2, 3, 4, 5, 6, 0, 1, 2, 3, 4, 5, 6, 1, 0, 1}
 
 -- MIDI constants
 local MIDI_CLOCK = 248
@@ -31,28 +33,27 @@ local MIDI_STOP = 252
 function redraw_grid()
     grid_led_all(0)
 
-    -- row 1 leds
+    -- ROW 1: menu row
 
-    -- clock divider / multiplier leds
+    -- fill clock divider / multiplier leds
     for i = 1, 5 do
         grid_led(i, 1, 4)
     end
 
     -- clock led
-    -- UPDATE: move the clock led to the currently selected multiplier led
     if run_clock then
-        -- active clock led blinks on clock running
-        grid_led(clock_led_loc, 1, clock_led * 15)
+        -- active clock divider / multiplier led blinks on clock running
+        grid_led(selected_clock_div, 1, clock_led * 15)
         -- led 16, 1 is dim
         grid_led(16, 1, 4)
     else
-        -- inactive clock led lit when run_clock is false
-        grid_led(clock_led_loc, 1, 15)
+        -- inactive clock divider / multiplier led lit when run_clock is false
+        grid_led(selected_clock_div, 1, 15)
         -- led 16, 1 is bright
         grid_led(16, 1, 15)
     end
 
-    -- row 2 leds 
+    -- ROW 2: loop row
 
     -- light leds within active loop
     local step_min = math.min(loop_start, loop_end)
@@ -102,7 +103,14 @@ function tick()
         end
     end
 
-    -- add further on-tick functionality here
+    -- trigger midid out on/off messages
+    if last_note > 0 then
+        midi_note_off(notes[last_note])
+    end
+    last_note = steps[current_step]
+    if last_note > 0 then
+        midi_note_on(notes[last_note])
+    end
 
     redraw_grid()
 end
@@ -110,7 +118,7 @@ end
 -- MAIN SCRIPT
 
 -- initialise internal clock
-local internal_clock = metro.init(tick, (30 / internal_clock_bpm) * clock_div)
+local internal_clock = metro.init(tick, (60 / internal_clock_bpm) * clock_divs[selected_clock_div])
 
 -- run internal clock on script launch
 check_direction()
@@ -127,15 +135,14 @@ print("clock running: " .. tostring(run_clock))
 -- grid button event handling
 function event_grid(x, y, z)
     if y == 1 then
-        -- menu row: row 1
+        -- ROW 1: menu row
 
         -- clock multiplier / divider
         if z == 1 then
             if x >= 1 and x <= 5 then
-                clock_div = divs[x]
-                clock_led_loc = x -- move LED to pressed button
+                selected_clock_div = x -- move LED to pressed button
             end
-            local new_time = (30 / internal_clock_bpm) * clock_div
+            local new_time = (60 / internal_clock_bpm) * clock_divs[selected_clock_div]
             if internal_clock.time ~= new_time then
                 internal_clock.time = new_time
             end
@@ -149,6 +156,7 @@ function event_grid(x, y, z)
 
             if not run_clock then
                 internal_clock:stop()
+                midi_note_off(notes[last_note])
             elseif not midi_sync then
                 internal_clock:start()
             end
@@ -156,7 +164,7 @@ function event_grid(x, y, z)
         end
 
     elseif y == 2 then
-        -- loop row: row 2
+        -- ROW 2: loop row
 
         -- if two buttons are held, update loop_start and loop_end on release
         if z == 1 then
@@ -225,7 +233,7 @@ function event_midi(d1, d2, d3)
     elseif d1 == MIDI_CLOCK then
         -- ignore midi clock when run_clock is false
         if run_clock then
-            local midi_step_div = math.max(1, math.floor(12 * clock_div))
+            local midi_step_div = math.max(1, math.floor(24 * clock_divs[selected_clock_div]))
             midi_sync = true
             midi_ppqn = (midi_ppqn + 1) % midi_step_div
             if midi_ppqn == 0 then
@@ -240,5 +248,5 @@ function event_midi(d1, d2, d3)
 end
 
 function midi_message(d1, d2, d3)
-    -- add further midi note / CC handling here
+    -- add further midi in note / CC handling here
 end
