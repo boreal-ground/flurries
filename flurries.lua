@@ -1,5 +1,5 @@
 -- flurries for iii - boreal ground
-print("flurries v0.6")
+print("flurries v0.7")
 
 -- editable parameters
 local internal_clock_bpm = 120 -- set starting bpm for internal clock
@@ -20,7 +20,9 @@ local buttons_held = 0
 local temp_loop_start = 0
 local temp_loop_end = 0
 local last_note = 0
-local steps = {1, 2, 3, 4, 5, 6, 0, 1, 2, 3, 4, 5, 6, 1, 0, 1}
+local steps = {{0}, {1, 2}, {0}, {4}, {0}, {0}, {5, 6}, {0}, {5, 6, 1, 2}, {0}, {1}, {1, 2}, {1, 2, 3}, {1, 2, 3, 4},
+               {0}, {4, 3, 2, 1}}
+local ratchet_index = 1
 
 -- MIDI constants
 local MIDI_CLOCK = 248
@@ -85,31 +87,52 @@ end
 
 -- clock tick function
 function tick()
-    -- update state of clock_led
     clock_led = 1 - clock_led
 
-    -- loop wraparound logic
-    if forwards then
-        -- forwards
-        current_step = current_step + 1
-        if current_step > loop_end then
-            current_step = loop_start
-        end
-    else
-        -- backwards
-        current_step = current_step - 1
-        if current_step < loop_end then
-            current_step = loop_start
-        end
+    local step_notes = steps[current_step] or {}
+    if #step_notes == 0 then
+        step_notes = {0}
     end
 
-    -- trigger midid out on/off messages
-    if last_note > 0 then
-        midi_note_off(notes[last_note])
+    -- get note depending on direction
+    local note_index
+    if forwards then
+        note_index = step_notes[ratchet_index]
+    else
+        note_index = step_notes[#step_notes - ratchet_index + 1]
     end
-    last_note = steps[current_step]
-    if last_note > 0 then
-        midi_note_on(notes[last_note])
+    note_index = note_index or 0
+
+    -- turn off previous note
+    if last_note > 0 and notes[last_note] then
+        midi_note_off(notes[last_note])
+        last_note = 0
+    end
+
+    -- turn on current note
+    if note_index > 0 then
+        midi_note_on(notes[note_index])
+        last_note = note_index
+    end
+
+    -- advance ratchet
+    ratchet_index = ratchet_index + 1
+
+    if ratchet_index > #step_notes then
+        ratchet_index = 1
+
+        -- advance step after ratchets
+        if forwards then
+            current_step = current_step + 1
+            if current_step > math.max(loop_start, loop_end) then
+                current_step = math.min(loop_start, loop_end)
+            end
+        else
+            current_step = current_step - 1
+            if current_step < math.min(loop_start, loop_end) then
+                current_step = math.max(loop_start, loop_end)
+            end
+        end
     end
 
     redraw_grid()
@@ -118,7 +141,8 @@ end
 -- MAIN SCRIPT
 
 -- initialise internal clock
-local internal_clock = metro.init(tick, (60 / internal_clock_bpm) * clock_divs[selected_clock_div])
+local base_time = (60 / internal_clock_bpm) * clock_divs[selected_clock_div]
+local internal_clock = metro.init(tick, base_time / 4)
 
 -- run internal clock on script launch
 check_direction()
@@ -142,7 +166,7 @@ function event_grid(x, y, z)
             if x >= 1 and x <= 5 then
                 selected_clock_div = x -- move LED to pressed button
             end
-            local new_time = (60 / internal_clock_bpm) * clock_divs[selected_clock_div]
+            local new_time = ((60 / internal_clock_bpm) * clock_divs[selected_clock_div]) / 4
             if internal_clock.time ~= new_time then
                 internal_clock.time = new_time
             end
@@ -156,7 +180,10 @@ function event_grid(x, y, z)
 
             if not run_clock then
                 internal_clock:stop()
-                midi_note_off(notes[last_note])
+                if last_note > 0 and notes[last_note] then
+                    midi_note_off(notes[last_note])
+                end
+                last_note = 0
             elseif not midi_sync then
                 internal_clock:start()
             end
@@ -202,6 +229,7 @@ function event_grid(x, y, z)
                 print("loop start: " .. temp_loop_start .. " | loop end: " .. temp_loop_end)
                 temp_loop_start = 0
                 temp_loop_end = 0
+                ratchet_index = 1
                 redraw_grid()
             end
         end
@@ -233,7 +261,9 @@ function event_midi(d1, d2, d3)
     elseif d1 == MIDI_CLOCK then
         -- ignore midi clock when run_clock is false
         if run_clock then
-            local midi_step_div = math.max(1, math.floor(24 * clock_divs[selected_clock_div]))
+            local pulses_per_step = 24 * clock_divs[selected_clock_div]
+            local pulses_per_tick = pulses_per_step / 4
+            local midi_step_div = math.max(1, math.floor(pulses_per_tick + 0.5))
             midi_sync = true
             midi_ppqn = (midi_ppqn + 1) % midi_step_div
             if midi_ppqn == 0 then
