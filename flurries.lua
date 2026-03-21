@@ -36,6 +36,15 @@ function redraw_grid()
     grid_led_all(0)
 
     -- ROW 1: menu row
+    redraw_grid_menu()
+
+    -- ROW 2: loop row
+    redraw_grid_loop()
+
+end
+
+function redraw_grid_menu()
+    -- ROW 1: menu row
 
     -- fill clock divider / multiplier leds
     for i = 1, 5 do
@@ -55,6 +64,10 @@ function redraw_grid()
         grid_led(16, 1, 15)
     end
 
+    grid_refresh()
+end
+
+function redraw_grid_loop()
     -- ROW 2: loop row
 
     -- light leds within active loop
@@ -136,6 +149,7 @@ function tick()
     end
 
     redraw_grid()
+    -- split out later?
 end
 
 -- MAIN SCRIPT
@@ -187,7 +201,7 @@ function event_grid(x, y, z)
             elseif not midi_sync then
                 internal_clock:start()
             end
-            redraw_grid()
+            redraw_grid_menu()
         end
 
     elseif y == 2 then
@@ -204,11 +218,11 @@ function event_grid(x, y, z)
             elseif buttons_held == 2 then
                 temp_loop_end = x
             end
-            redraw_grid()
+            redraw_grid_loop()
         else
             -- button released
             buttons_held = math.max(buttons_held - 1, 0)
-            -- redraw_grid()
+            -- redraw_grid_loop()
 
             if buttons_held == 0 and temp_loop_start > 0 and temp_loop_end > 0 then
                 loop_start = temp_loop_start
@@ -230,7 +244,7 @@ function event_grid(x, y, z)
                 temp_loop_start = 0
                 temp_loop_end = 0
                 ratchet_index = 1
-                redraw_grid()
+                redraw_grid_loop()
             end
         end
     end
