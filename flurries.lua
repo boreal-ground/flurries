@@ -192,7 +192,6 @@ function tick()
     end
 
     redraw_grid()
-    -- split out later?
 end
 
 -- MAIN SCRIPT
