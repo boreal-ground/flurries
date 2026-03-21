@@ -1,5 +1,5 @@
 -- flurries for iii - boreal ground
-print("flurries v0.7")
+print("flurries v0.8")
 
 -- editable parameters
 local internal_clock_bpm = 120 -- set starting bpm for internal clock
@@ -9,6 +9,11 @@ local loop_end = 16 -- last step of loop
 local selected_clock_div = 3 -- default clock multipliers/divider position
 local clock_divs = {4, 2, 1, 0.5, 0.25} -- available clock multipliers/dividers
 local notes = {66, 68, 70, 72, 74, 76} -- available note array
+
+-- led brightness variables
+local active = 15
+local inactive = 6
+local disabled = 2
 
 -- starting parameters
 local clock_led = 0
@@ -20,8 +25,8 @@ local buttons_held = 0
 local temp_loop_start = 0
 local temp_loop_end = 0
 local last_note = 0
-local steps = {{0}, {1, 2}, {0}, {4}, {0}, {0}, {5, 6}, {0}, {5, 6, 1, 2}, {0}, {1}, {1, 2}, {1, 2, 3}, {1, 2, 3, 4},
-               {0}, {4, 3, 2, 1}}
+local steps = {{0}, {1, 2, 2, 1}, {0}, {4}, {0}, {0}, {6, 5}, {0}, {5, 6, 1, 2}, {0}, {1}, {1, 2}, {1, 2, 3},
+               {1, 2, 3, 4}, {0}, {4, 3, 2, 1}}
 local ratchet_index = 1
 
 -- MIDI constants
@@ -31,7 +36,7 @@ local MIDI_STOP = 252
 
 -- FUNCTIONS
 
--- redraw grid leds
+-- redraw all grid leds
 function redraw_grid()
     grid_led_all(0)
 
@@ -41,56 +46,94 @@ function redraw_grid()
     -- ROW 2: loop row
     redraw_grid_loop()
 
+    -- ROWS 3 - 8: step sequencer ROWS        
+    redraw_grid_steps()
+
+    grid_refresh()
 end
 
+-- redraw menu row leds
 function redraw_grid_menu()
-    -- ROW 1: menu row
 
     -- fill clock divider / multiplier leds
     for i = 1, 5 do
-        grid_led(i, 1, 4)
+        grid_led(i, 1, inactive)
     end
 
     -- clock led
     if run_clock then
         -- active clock divider / multiplier led blinks on clock running
-        grid_led(selected_clock_div, 1, clock_led * 15)
+        grid_led(selected_clock_div, 1, clock_led * active)
         -- led 16, 1 is dim
-        grid_led(16, 1, 4)
+        grid_led(16, 1, inactive)
     else
         -- inactive clock divider / multiplier led lit when run_clock is false
-        grid_led(selected_clock_div, 1, 15)
+        grid_led(selected_clock_div, 1, active)
         -- led 16, 1 is bright
-        grid_led(16, 1, 15)
+        grid_led(16, 1, active)
     end
-
-    grid_refresh()
 end
 
+-- redraw loop row leds
 function redraw_grid_loop()
-    -- ROW 2: loop row
 
     -- light leds within active loop
     local step_min = math.min(loop_start, loop_end)
     local step_max = math.max(loop_start, loop_end)
     for i = step_min, step_max do
-        grid_led(i, 2, 4)
+        grid_led(i, 2, inactive)
     end
 
     -- light led for current_step
     if current_step >= 1 and current_step <= 16 then
-        grid_led(current_step, 2, 15)
+        grid_led(current_step, 2, active)
     end
 
     -- light held start/end button leds for new loop
     if temp_loop_start ~= 0 then
-        grid_led(temp_loop_start, 2, 15)
+        grid_led(temp_loop_start, 2, active)
     end
     if temp_loop_end ~= 0 then
-        grid_led(temp_loop_end, 2, 15)
+        grid_led(temp_loop_end, 2, active)
     end
+end
 
-    grid_refresh()
+-- redraw step leds
+function redraw_grid_steps()
+    local step_min = math.min(loop_start, loop_end)
+    local step_max = math.max(loop_start, loop_end)
+
+    for x = 1, 16 do
+        local step_notes = steps[x] or {}
+
+        -- iterate over each note in notes[], mapped to rows 8 → 3
+        for i = 1, #notes do
+            local y = 9 - i
+            local note_num = notes[i]
+            local led_state = 0
+
+            -- check all ratchets in this step for this note
+            local is_inside_loop = (x >= step_min and x <= step_max)
+            local is_active = false
+            for ratchet_pos, step_idx in ipairs(step_notes) do
+                if notes[step_idx] == note_num then
+                    if x == current_step and ratchet_pos == ratchet_index then
+                        is_active = true
+                        break
+                    else
+                        -- keep as dim if inside loop, else disabled
+                        led_state = is_inside_loop and inactive or disabled
+                    end
+                end
+            end
+
+            if is_active then
+                led_state = active
+            end
+
+            grid_led(x, y, led_state)
+        end
+    end
 end
 
 -- check direction of loop
@@ -244,7 +287,7 @@ function event_grid(x, y, z)
                 print("loop start: " .. temp_loop_start .. " | loop end: " .. temp_loop_end)
                 temp_loop_start = 0
                 temp_loop_end = 0
-                -- ratchet_index = 1
+
                 redraw_grid_loop()
             end
         end
