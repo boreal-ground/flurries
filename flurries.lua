@@ -1,5 +1,5 @@
 -- flurries for iii - boreal ground
-print("flurries v0.8")
+print("flurries v0.9")
 
 -- editable parameters
 local internal_clock_bpm = 120 -- set starting bpm for internal clock
@@ -25,8 +25,7 @@ local buttons_held = 0
 local temp_loop_start = 0
 local temp_loop_end = 0
 local last_note = 0
-local steps = {{0}, {1, 2, 2, 1}, {0}, {4}, {0}, {0}, {6, 5}, {0}, {5, 6, 1, 2}, {0}, {1}, {1, 2}, {1, 2, 3},
-               {1, 2, 3, 4}, {0}, {4, 3, 2, 1}}
+local steps = {{0}, {0}, {0}, {0}, {0}, {0}, {0}, {0}, {0}, {0}, {0}, {0}, {0}, {0}, {0}, {0}}
 local ratchet_index = 1
 
 -- MIDI constants
@@ -46,7 +45,7 @@ function redraw_grid()
     -- ROW 2: loop row
     redraw_grid_loop()
 
-    -- ROWS 3 - 8: step sequencer ROWS        
+    -- ROWS 3 - 8: step sequencer     
     redraw_grid_steps()
 
     grid_refresh()
@@ -290,6 +289,29 @@ function event_grid(x, y, z)
                 redraw_grid_loop()
             end
         end
+
+    elseif y >= 3 and y <= 8 then
+        local step = x
+        local note_idx = 9 - y -- maps rows 8 → 3 to notes[1..6]
+
+        -- ensure the step exists
+        if steps[step] == nil then
+            steps[step] = {}
+        end
+
+        local step_notes = steps[step]
+
+        if z == 1 then -- button pressed
+            if #step_notes < 4 then
+                table.insert(step_notes, note_idx)
+            else
+                -- remove oldest ratchet (first element) and add new
+                table.remove(step_notes, 1)
+                table.insert(step_notes, note_idx)
+            end
+        end
+
+        redraw_grid_steps()
     end
 end
 
