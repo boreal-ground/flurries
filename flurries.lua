@@ -230,20 +230,21 @@ function event_grid(x, y, z)
                 check_direction()
 
                 -- only reset current_step if it is outside of new loop
-                if forwards then
-                    if current_step < loop_start or current_step > loop_end then
-                        current_step = loop_start
-                    end
-                else
-                    if current_step > loop_start or current_step < loop_end then
-                        current_step = loop_start
+                local step_min = math.min(loop_start, loop_end)
+                local step_max = math.max(loop_start, loop_end)
+
+                if current_step < step_min or current_step > step_max then
+                    if forwards then
+                        current_step = step_min
+                    else
+                        current_step = step_max
                     end
                 end
 
                 print("loop start: " .. temp_loop_start .. " | loop end: " .. temp_loop_end)
                 temp_loop_start = 0
                 temp_loop_end = 0
-                ratchet_index = 1
+                -- ratchet_index = 1
                 redraw_grid_loop()
             end
         end
