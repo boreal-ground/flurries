@@ -1,82 +1,80 @@
 -- flurries for iii - boreal ground
-print("flurries v0.9")
+print("flurries v1.0")
 
 -- editable parameters
 local internal_clock_bpm = 120 -- set starting bpm for internal clock
-local run_clock = true -- clock override: stops listening to all clocks if false
-local loop_start = 1 -- first step of loop
-local loop_end = 16 -- last step of loop
-local selected_clock_div = 3 -- default clock multipliers/divider position
-local clock_divs = {4, 2, 1, 0.5, 0.25} -- available clock multipliers/dividers
-local notes = {66, 68, 70, 72, 74, 76} -- available note array
+local run_clock = true -- run clock on startup
+local loop_start = 1 -- starting position for first step of loop
+local loop_end = 16 -- starting position for last step of loop
+local selected_clock_div = 3 -- starting position within clock_divs
+local clock_divs = {4, 2, 1, 0.5, 0.25} -- available clock multipliers/dividers (note: hardcoded to 5 options)
+local notes = {60, 62, 64, 65, 67, 69} -- available note array (note: hardcoded to 6 notes)
+local substeps_max = 4 -- maximum number of substeps per step
+local midi_out_channel = 1 -- midi out channel for notes from grid
 
--- led brightness variables
+-- led brightness settings
 local active = 15
 local inactive = 6
 local disabled = 2
 
--- starting parameters
-local clock_led = 0
-local midi_ppqn = 0
+-- parameter initialisation
 local midi_sync = false
+local clock_led = 0
 local forwards = true
+local menu_held = false
 local current_step = loop_start
 local buttons_held = 0
 local temp_loop_start = 0
 local temp_loop_end = 0
+local steps = {{}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}}
 local last_note = 0
-local steps = {{0}, {0}, {0}, {0}, {0}, {0}, {0}, {0}, {0}, {0}, {0}, {0}, {0}, {0}, {0}, {0}}
-local ratchet_index = 1
+local substep_index = 1
+local substep_counter = 0
 
--- MIDI constants
-local MIDI_CLOCK = 248
-local MIDI_START = 250
-local MIDI_STOP = 252
-
--- FUNCTIONS
+-- GRID REDRAW FUNCTIONS
 
 -- redraw all grid leds
 function redraw_grid()
     grid_led_all(0)
 
-    -- ROW 1: menu row
     redraw_grid_menu()
-
-    -- ROW 2: loop row
     redraw_grid_loop()
-
-    -- ROWS 3 - 8: step sequencer     
     redraw_grid_steps()
 
     grid_refresh()
 end
 
--- redraw menu row leds
+-- ROW 1: redraw menu row leds
 function redraw_grid_menu()
-
-    -- fill clock divider / multiplier leds
+    -- buttons 1-5,1: draw all divider leds dim
     for i = 1, 5 do
         grid_led(i, 1, inactive)
     end
 
-    -- clock led
+    -- selected divider led
+    local level
     if run_clock then
-        -- active clock divider / multiplier led blinks on clock running
-        grid_led(selected_clock_div, 1, clock_led * active)
-        -- led 16, 1 is dim
-        grid_led(16, 1, inactive)
+        -- blink when running
+        level = clock_led == 1 and active or 0
     else
-        -- inactive clock divider / multiplier led lit when run_clock is false
-        grid_led(selected_clock_div, 1, active)
-        -- led 16, 1 is bright
-        grid_led(16, 1, active)
+        -- fully lit when stopped
+        level = active
     end
+    grid_led(selected_clock_div, 1, level)
+
+    -- button 16,1: menu button
+    grid_led(16, 1, menu_held and active or inactive)
 end
 
--- redraw loop row leds
+-- ROW 2: redraw loop row leds
 function redraw_grid_loop()
 
-    -- light leds within active loop
+    -- clear row 2 leds
+    for i = 1, 16 do
+        grid_led(i, 2, 0)
+    end
+
+    -- dimly light leds within active loop
     local step_min = math.min(loop_start, loop_end)
     local step_max = math.max(loop_start, loop_end)
     for i = step_min, step_max do
@@ -97,7 +95,7 @@ function redraw_grid_loop()
     end
 end
 
--- redraw step leds
+-- ROWS 3 - 8: redraw step leds
 function redraw_grid_steps()
     local step_min = math.min(loop_start, loop_end)
     local step_max = math.max(loop_start, loop_end)
@@ -105,102 +103,121 @@ function redraw_grid_steps()
     for x = 1, 16 do
         local step_notes = steps[x] or {}
 
-        -- iterate over each note in notes[], mapped to rows 8 → 3
         for i = 1, #notes do
             local y = 9 - i
             local note_num = notes[i]
             local led_state = 0
 
-            -- check all ratchets in this step for this note
-            local is_inside_loop = (x >= step_min and x <= step_max)
-            local is_active = false
-            for ratchet_pos, step_idx in ipairs(step_notes) do
-                if notes[step_idx] == note_num then
-                    if x == current_step and ratchet_pos == ratchet_index then
-                        is_active = true
-                        break
+            -- menu button held: show only bottom row for overview of populated steps
+            if menu_held then
+                if y == 8 then
+                    if #step_notes == 0 or (#step_notes == 1 and step_notes[1] == 0) then
+                        led_state = inactive
                     else
-                        -- keep as dim if inside loop, else disabled
-                        led_state = is_inside_loop and inactive or disabled
+                        led_state = active
+                    end
+                else
+                    led_state = 0
+                end
+
+                grid_led(x, y, led_state)
+            else
+                -- menu button not held: display step sequencer
+                local is_inside_loop = (x >= step_min and x <= step_max)
+                local is_active = false
+                local matched = false
+
+                for substep_pos, step_index in ipairs(step_notes) do
+                    local n = notes[step_index]
+
+                    if n ~= nil and n == note_num then
+                        matched = true
+
+                        if x == current_step and substep_pos == substep_index then
+                            is_active = true
+                            break
+                        end
                     end
                 end
-            end
 
-            if is_active then
-                led_state = active
-            end
+                if is_active then
+                    led_state = active
+                elseif matched then
+                    led_state = is_inside_loop and inactive or disabled
+                else
+                    led_state = 0
+                end
 
-            grid_led(x, y, led_state)
+                grid_led(x, y, led_state)
+            end
         end
     end
 end
 
--- check direction of loop
-function check_direction()
-    forwards = loop_start <= loop_end
-end
-
--- clock tick function
+-- CLOCK TICK FUNCTION
 function tick()
-    clock_led = 1 - clock_led
 
-    local step_notes = steps[current_step] or {}
-    if #step_notes == 0 then
-        step_notes = {0}
-    end
+    if run_clock then
 
-    -- get note depending on direction
-    local note_index
-    if forwards then
-        note_index = step_notes[ratchet_index]
-    else
-        note_index = step_notes[#step_notes - ratchet_index + 1]
-    end
-    note_index = note_index or 0
+        clock_led = 1 - clock_led
 
-    -- turn off previous note
-    if last_note > 0 and notes[last_note] then
-        midi_note_off(notes[last_note])
+        local step_notes = steps[current_step] or {}
+
+        -- check sequencer direction for next note
+        local note_index
+        if forwards then
+            note_index = step_notes[substep_index]
+        else
+            note_index = step_notes[#step_notes - substep_index + 1]
+        end
+        note_index = note_index or 0
+
+        -- turn off previous note
+        if last_note > 0 and notes[last_note] then
+            midi_note_off(notes[last_note], 127, midi_out_channel)
+            last_note = 0
+        end
+
+        -- turn on current note
+        if note_index > 0 then
+            midi_note_on(notes[note_index], 127, midi_out_channel)
+            last_note = note_index
+        end
+
+        redraw_grid()
+
+        substep_index = substep_index + 1
+
+        -- when all substeps have been triggered
+        if substep_index > #step_notes then
+            substep_index = 1
+
+            if forwards then
+                current_step = current_step + 1
+                if current_step > math.max(loop_start, loop_end) then
+                    current_step = math.min(loop_start, loop_end)
+                end
+            else
+                current_step = current_step - 1
+                if current_step < math.min(loop_start, loop_end) then
+                    current_step = math.max(loop_start, loop_end)
+                end
+            end
+        end
+
+    elseif not run_clock and last_note > 0 then
+        midi_note_off(notes[last_note], 127, midi_out_channel)
         last_note = 0
     end
-
-    -- turn on current note
-    if note_index > 0 then
-        midi_note_on(notes[note_index])
-        last_note = note_index
-    end
-
-    -- advance ratchet
-    ratchet_index = ratchet_index + 1
-
-    if ratchet_index > #step_notes then
-        ratchet_index = 1
-
-        -- advance step after ratchets
-        if forwards then
-            current_step = current_step + 1
-            if current_step > math.max(loop_start, loop_end) then
-                current_step = math.min(loop_start, loop_end)
-            end
-        else
-            current_step = current_step - 1
-            if current_step < math.min(loop_start, loop_end) then
-                current_step = math.max(loop_start, loop_end)
-            end
-        end
-    end
-
-    redraw_grid()
 end
 
 -- MAIN SCRIPT
 
 -- initialise internal clock
-local base_time = (60 / internal_clock_bpm) * clock_divs[selected_clock_div]
-local internal_clock = metro.init(tick, base_time / 4)
+local internal_clock = metro.init(tick, ((60 / internal_clock_bpm) * clock_divs[selected_clock_div]) / 2)
 
 -- run internal clock on script launch
-check_direction()
+forwards = loop_start <= loop_end
 if run_clock then
     internal_clock:start()
 end
@@ -216,102 +233,118 @@ function event_grid(x, y, z)
     if y == 1 then
         -- ROW 1: menu row
 
-        -- clock multiplier / divider
+        -- Menu button (16,1)
+        if x == 16 then
+            menu_held = (z == 1)
+            redraw_grid()
+            return
+        end
+
+        -- clock multiplier / divider buttons (1-5,1)
         if z == 1 then
-            if x >= 1 and x <= 5 then
-                selected_clock_div = x -- move LED to pressed button
-            end
-            local new_time = ((60 / internal_clock_bpm) * clock_divs[selected_clock_div]) / 4
-            if internal_clock.time ~= new_time then
-                internal_clock.time = new_time
-            end
-        end
+            if x == selected_clock_div then
 
-        -- if button 16,1 is pressed: toggles run_clock override
-        if x == 16 and z == 1 then
+                run_clock = not run_clock
 
-            run_clock = not run_clock
-            print("clock running: " .. tostring(run_clock))
+                if not run_clock then
+                    internal_clock:stop()
 
-            if not run_clock then
-                internal_clock:stop()
-                if last_note > 0 and notes[last_note] then
-                    midi_note_off(notes[last_note])
+                elseif not midi_sync then
+                    internal_clock:start()
                 end
-                last_note = 0
-            elseif not midi_sync then
-                internal_clock:start()
-            end
-            redraw_grid_menu()
-        end
 
-    elseif y == 2 then
+                redraw_grid()
+
+            elseif x >= 1 and x <= 5 and z == 1 then
+
+                selected_clock_div = x
+                local new_time = ((60 / internal_clock_bpm) * clock_divs[selected_clock_div]) / 2
+                if internal_clock.time ~= new_time then
+                    internal_clock.time = new_time
+                end
+
+                redraw_grid_menu()
+                grid_refresh()
+            end
+        end
+    end
+
+    if y == 2 then
+
         -- ROW 2: loop row
 
-        -- if two buttons are held, update loop_start and loop_end on release
         if z == 1 then
-            -- button pressed
             buttons_held = math.min(buttons_held + 1, 2)
-
             if buttons_held == 1 then
                 temp_loop_start = x
                 temp_loop_end = x
             elseif buttons_held == 2 then
                 temp_loop_end = x
             end
+
             redraw_grid_loop()
+            grid_refresh()
+
         else
-            -- button released
+
             buttons_held = math.max(buttons_held - 1, 0)
-            -- redraw_grid_loop()
 
             if buttons_held == 0 and temp_loop_start > 0 and temp_loop_end > 0 then
                 loop_start = temp_loop_start
                 loop_end = temp_loop_end
-                check_direction()
+                forwards = loop_start <= loop_end
 
-                -- only reset current_step if it is outside of new loop
+                -- reset current_step if outside new loop
                 local step_min = math.min(loop_start, loop_end)
                 local step_max = math.max(loop_start, loop_end)
-
                 if current_step < step_min or current_step > step_max then
-                    if forwards then
-                        current_step = step_min
-                    else
-                        current_step = step_max
-                    end
+                    current_step = forwards and step_min or step_max
                 end
 
                 print("loop start: " .. temp_loop_start .. " | loop end: " .. temp_loop_end)
+
                 temp_loop_start = 0
                 temp_loop_end = 0
 
-                redraw_grid_loop()
+                redraw_grid()
             end
         end
 
     elseif y >= 3 and y <= 8 then
-        local step = x
-        local note_idx = 9 - y -- maps rows 8 → 3 to notes[1..6]
 
-        -- ensure the step exists
-        if steps[step] == nil then
-            steps[step] = {}
-        end
+        -- ROWS 3-8: step sequencer rows
+
+        local step = x
+        local note_index = 9 - y
 
         local step_notes = steps[step]
 
-        if z == 1 then -- button pressed
-            if #step_notes < 4 then
-                table.insert(step_notes, note_idx)
+        if menu_held then
+
+            -- don't allow changes to sequence when menu button is held
+            if y == 8 and z == 1 then
+
+                steps[step] = {}
+
+                redraw_grid()
+            elseif (y > 2 and y < 8) and z == 1 then
+                -- reserved for adding further functionality in menu later
+                print("this button still needs a purpose assigned")
+            end
+            return
+        end
+
+        if z == 1 then
+            -- add new subnotes, overwriting oldest substep once substeps_max is exceeded
+            if #step_notes < substeps_max then
+                table.insert(step_notes, note_index)
             else
-                -- remove oldest ratchet (first element) and add new
                 table.remove(step_notes, 1)
-                table.insert(step_notes, note_idx)
+                table.insert(step_notes, note_index)
             end
         end
 
-        redraw_grid_steps()
+        redraw_grid()
     end
 end
 
@@ -319,7 +352,8 @@ end
 function event_midi(d1, d2, d3)
 
     -- midi in transport message handling
-    if d1 == MIDI_STOP then
+    if d1 == 252 then -- midi stop
+        -- start internal clock on midi stop message
         midi_sync = false
         print("midi sync: " .. tostring(midi_sync))
         if run_clock then
@@ -327,27 +361,21 @@ function event_midi(d1, d2, d3)
         end
         return
 
-    elseif d1 == MIDI_START then
-        -- ignore midi start when run_clock is false
-        if run_clock then
-            midi_sync = true
-            print("midi sync: " .. tostring(midi_sync))
-            internal_clock:stop()
-            midi_ppqn = 0
-            tick()
-        end
+    elseif d1 == 250 and not midi_sync then -- midi start
+        -- stop internal clock and sync on midi start message
+        midi_sync = true
+        print("midi sync: " .. tostring(midi_sync))
+        internal_clock:stop()
+        redraw_grid()
         return
-    elseif d1 == MIDI_CLOCK then
-        -- ignore midi clock when run_clock is false
-        if run_clock then
-            local pulses_per_step = 24 * clock_divs[selected_clock_div]
-            local pulses_per_tick = pulses_per_step / 4
-            local midi_step_div = math.max(1, math.floor(pulses_per_tick + 0.5))
-            midi_sync = true
-            midi_ppqn = (midi_ppqn + 1) % midi_step_div
-            if midi_ppqn == 0 then
-                tick()
-            end
+
+    elseif d1 == 248 and midi_sync then -- midi clock
+        -- sync to midi clock when run_clock is true
+        local pulses_per_tick = (24 * clock_divs[selected_clock_div]) / 2
+        substep_counter = substep_counter + 1
+        if substep_counter >= pulses_per_tick then
+            substep_counter = substep_counter - pulses_per_tick
+            tick()
         end
         return
     end
