@@ -5,7 +5,7 @@ Flurries is a cycling/fluid midi sequencer for monome grids running iii.
 ## How to install
 Designed to run on a monome grid with [iii firmware](https://monome.org/docs/iii/) installed.
 
-Connect your monome grid using the [diii](https://monome.org/diii/) browser utility, and upload flurries.lua. In the left-hand menu locate flurries.lua, and select 'first' from the '...' menu.
+Connect your monome grid using the [diii](https://monome.org/diii/) browser utility, and upload flurries.lua. In the left-hand menu locate flurries.lua, and select **'first'** from the **'...'** menu.  See [dii documentation](https://monome.org/docs/iii/diii/) for more guidance on uploading and managing ii scripts.
 
 ## In use
 The 16-step sequencer allows mid-sequence on-the-fly direction and loop length changes, by holding two buttons on the second grid row.  Loop changes become active on button release.  Five stages of clock dividers/multipliers can be cycled through using the five top left buttons. Pressing the currently active divider pauses the sequencer.
