@@ -1,7 +1,7 @@
 # Flurries
 
 Flurries is a cycling/fluid midi sequencer for monome grids running iii.
-![Image of monome grid 128 funning flurries.lua script](flurries.jpg)
+![Image of monome grid 128 funning flurries.lua script](flurries.jpeg)
 
 ## How to install
 
